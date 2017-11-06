@@ -30,4 +30,12 @@ q_result = Queue()
 
 class Args(object):
 	def __init__(self):
-		options,_ = getopt(sys.argv[1:])
+		options,_ = getopt(sys.argv[1:],'C:c:d:o:')
+		self.options = dict(options)
+
+	def _value_afer_option(self,option):
+		value = self.options.get(option)
+		if value is None and option != '-C':
+			print('error 01')
+			exit()
+		return value
