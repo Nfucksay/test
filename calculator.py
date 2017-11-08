@@ -67,3 +67,59 @@ class Config(object):
 	def _get_config(self,name):
 		try:
 			return float(self.config[name])
+                except (ValueError,KeyError):
+                    print('Parameter Error')
+                    exit()
+
+        @property
+        def social_insurance_baseline_low(self):
+        	return self._get_config('JiShuL')
+
+        @property 
+        def social_insurance_baseline_high(self):
+        	return self.get_config('JiShuH')
+        @property 
+        def social_insurance_total_rate(self):
+        	return sum([
+self._get_config('YangLao'),
+self._get_config('YiLiao'),
+self._get_config('ShiYe'),
+self._get_config('GongShang'),
+self._get_config('ShengYu'),
+self._get_config('GongJiJin')
+        	           ])
+config = Config()
+
+class UserData(Process):
+	def _read_users_data(self):
+		with open(args.userdata_path) as f:
+			for line in f.readlines():
+				employee_id,income_string = line.strip().split(',')
+				try:
+					income = int(income_string)
+				except ValueError:
+					print('Parameter Error')
+				yield (employee_id,income)
+	def run(self):
+		for data in self._read_users_data():
+			q_user.put(data)
+
+class IncomeTaxCalculator(Process):
+	@staticmethod
+	def calc_social_insurance_money(income):
+		if income < config.social_insurance_baseline_low:
+			return config.social_insurance_baseline_low * config.social_insurance_total_rate
+		if income > config.social_insurance_baseline_high:
+			return config.social_insurance_baseline_high * config.social_insurance_total_rate
+		return income * config.social_insurance_total_rate
+	@classmethod
+	def calc_income_tax_and_remain(cls,income):
+		social_insurance_money = cls.calc_social_insurance_money(income)
+		real_income = income - social_insurance_money
+		taxable_part = real_income - INCOME_TAX_START_POINT
+		if taxable_part <= 0:
+			return '0.00','{:.2f}'.format(real_income)
+		for item in INCOME_TAX_QUICK_LOOKUP_TABLE:
+			if taxable_part>item.start_point:
+				tax = taxable_part * item.tax_rate - item.quick_subtractor
+				return '{:.2f}'.format(tax),'{:.2f}'.format(real_income - tax )
