@@ -6,7 +6,7 @@ import queue
 import configparser
 from getopt import getopt
 from datetime import datetime
-from multiprocessing import Process,queue
+from multiprocessing import Process,Queue
 from collections import namedtuple
 
 IncomeTaxQuickLookItem = namedtuple(
@@ -28,7 +28,7 @@ q_result = Queue()
 
 class Args(object):
 	def __init__(self):
-		options, _ getopt(sys.argv[1:],'C:c:d:o:')
+		options, _ = getopt(sys.argv[1:],'C:c:d:o:')
 		self.options = dict(options)
 
 	def _value_after_option(self,option):
@@ -38,24 +38,26 @@ class Args(object):
 			exit()
 		return value
 
-		@property
-		def city(self):
-			return self._value_after_option('-C')
+	@property
+	def city(self):
+		return self._value_after_option('-C')
 
-		@property 
-		def config_path(self):
-			return self._value_after_option('-c')
-		@property 
-		def userdata_path(self):
-			return self._value_after_option('-d')
-		@property 
-		def export_path(self):
-			return self._value_after_option('-o')
+	@property 
+	def config_path(self):
+		return self._value_after_option('-c')
+
+	@property
+	def userdata_path(self):
+		return self._value_after_option('-d')
+
+	@property 
+	def export_path(self):
+		return self._value_after_option('-o')
 
 args = Args()
 
 class Config(object):
-	def __init(self):
+	def __init__(self):
 		self.config = self._read_config()
 	def _read_config(self):
 		config = configparser.ConfigParser()
@@ -67,20 +69,17 @@ class Config(object):
 	def _get_config(self,name):
 		try:
 			return float(self.config[name])
-                except (ValueError,KeyError):
-                    print('Parameter Error')
-                    exit()
-
-        @property
-        def social_insurance_baseline_low(self):
-        	return self._get_config('JiShuL')
-
-        @property 
-        def social_insurance_baseline_high(self):
-        	return self.get_config('JiShuH')
-        @property 
-        def social_insurance_total_rate(self):
-        	return sum([
+		except (ValueError,KeyError):
+			print('Parameter Error')
+			exit()
+	@property
+	def social_insurance_baseline_low(self):
+		return self._get_config('JiShuL')
+	@property
+	def social_insurance_baseline_high(self):return self._get_config('JiShuH')
+	@property
+	def social_insurance_total_rate(self):
+		return sum([
 self._get_config('YangLao'),
 self._get_config('YiLiao'),
 self._get_config('ShiYe'),
@@ -94,7 +93,7 @@ class UserData(Process):
 	def _read_users_data(self):
 		with open(args.userdata_path) as f:
 			for line in f.readlines():
-				employee_id,income_string = line.strip().split(',')
+				employee_id, income_string = line.strip().split(',')
 				try:
 					income = int(income_string)
 				except ValueError:
@@ -123,3 +122,39 @@ class IncomeTaxCalculator(Process):
 			if taxable_part>item.start_point:
 				tax = taxable_part * item.tax_rate - item.quick_subtractor
 				return '{:.2f}'.format(tax),'{:.2f}'.format(real_income - tax )
+	def calc_for_all_userdata(self):
+		while True:
+			try:
+				employee_id,income = q_user.get(timeout=1)
+			except queue.Empty:
+				return
+			data = [employee_id,income]
+			social_insurance_money = '{:.2f}'.format(self.calc_social_insurance_money(income))
+			tax,remain = self.calc_income_tax_and_remain(income)
+			data.extend([social_insurance_money,tax,remain])
+			data.append(datetime.now().strftime('%Y-%m-%d %H:%M:%S:'))
+			yield data
+
+	def run(self):
+		for data in self.calc_for_all_userdata():
+			q_result.put(data)
+
+class Exporter(Process):
+
+	def run(self):
+		with open(args.export_path,'w',newline='') as f:
+			while True:
+				writer = csv.writer(f)
+				try:
+					item = q_result.get(timeout=1)
+				except queue.Empty:
+					return
+				writer.writerow(item)
+if __name__ == '__main__':
+	workers = [
+			UserData(),
+			IncomeTaxCalculator(),
+			Exporter()
+	]
+	for worker in workers:
+		worker.run()
